@@ -22,38 +22,43 @@ st.header("📈 Live Market Math")
 ticker = st.text_input("Enter Ticker (e.g., BTC-USD)", "BTC-USD")
 
 # Fetch 60 days of data
-data = yf.download(ticker, period="60d", interval="15m")
+df = yf.download(ticker, period="60d", interval="15m")
 
-if not data.empty and len(data) > 200:
-    # Calculations
-    data['EMA_200'] = ta.ema(data['Close'], length=200)
-    data['RSI'] = ta.rsi(data['Close'], length=14)
-    
-    # Remove empty rows
-    data = data.dropna(subset=['EMA_200', 'RSI'])
-    
-    if not data.empty:
-        # Display Stats
-        col1, col2, col3 = st.columns(3)
-        
-        # FIX: Added .item() to ensure we get a single number, not a Series
-        current_price = data['Close'].iloc[-1].item()
-        current_rsi = data['RSI'].iloc[-1].item()
-        current_ema = data['EMA_200'].iloc[-1].item()
+if not df.empty:
+    # FIX: Flatten the multi-index columns from yfinance
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
 
-        col1.metric("Price", f"${current_price:,.2f}")
-        col2.metric("RSI (14)", round(float(current_rsi), 2))
+    # Ensure we have enough data for EMA 200
+    if len(df) > 200:
+        # Calculations
+        df['EMA_200'] = ta.ema(df['Close'], length=200)
+        df['RSI'] = ta.rsi(df['Close'], length=14)
         
-        if current_price > current_ema:
-            col3.success("Trend: BULLISH 📈")
-        else:
-            col3.error("Trend: BEARISH 📉")
+        # Remove empty rows safely
+        df = df.dropna(subset=['EMA_200', 'RSI'])
+        
+        if not df.empty:
+            col1, col2, col3 = st.columns(3)
             
-        # Standardize data for the chart
-        chart_data = data[['Close', 'EMA_200']]
-        st.line_chart(chart_data)
+            # Get the very last values
+            current_price = float(df['Close'].iloc[-1])
+            current_rsi = float(df['RSI'].iloc[-1])
+            current_ema = float(df['EMA_200'].iloc[-1])
+
+            col1.metric("Price", f"${current_price:,.2f}")
+            col2.metric("RSI (14)", round(current_rsi, 2))
+            
+            if current_price > current_ema:
+                col3.success("Trend: BULLISH 📈")
+            else:
+                col3.error("Trend: BEARISH 📉")
+                
+            st.line_chart(df[['Close', 'EMA_200']])
+    else:
+        st.warning("Not enough historical data for this ticker yet. Try BTC-USD.")
 else:
-    st.info("Loading market data... Please wait for the 200-period calculation.")
+    st.info("Searching for ticker data...")
 
 st.divider()
 
