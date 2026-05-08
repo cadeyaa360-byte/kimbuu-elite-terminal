@@ -1,63 +1,60 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
+import yfinance as yf
+import pandas_ta as ta
+import google.generativeai as genai
+from PIL import Image
 
-st.set_page_config(page_title="KIMBUU ELITE V4", layout="wide")
-st.title("🛡️ KIMBUU ELITE: PURE POWER TERMINAL")
+# 1. SETUP & PAGE CONFIG
+st.set_page_config(page_title="KIMBUU ELITE", layout="wide")
 
-# --- SETTINGS ---
-symbol = st.sidebar.selectbox("Select Market", ["BTC-USD", "ETH-USD", "SOL-USD", "XAU-USD"])
-timeframe = st.sidebar.selectbox("Timeframe", ["1h", "4h", "1d"])
+# Connect to the AI Brain using the secret you saved
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+model = genai.GenerativeModel('gemini-1.5-flash')
 
-def get_clean_data(ticker, interval):
-    # 1. Download data
-    df = yf.download(ticker, period="100d", interval=interval, progress=False)
+st.title("🛡️ KIMBUU ELITE: VISION TERMINAL")
+
+# 2. MARKET MATH SECTION
+st.header("📈 Live Market Math")
+ticker = st.text_input("Enter Ticker (e.g., BTC-USD)", "BTC-USD")
+data = yf.download(ticker, period="1d", interval="15m")
+
+if not data.empty:
+    # Calculations
+    data['EMA_200'] = ta.ema(data['Close'], length=200)
+    data['RSI'] = ta.rsi(data['Close'], length=14)
     
-    if df.empty or len(df) < 50:
-        return None
-        
-    # 2. THE FIX: Flatten the multi-index columns that cause the ValueError
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = [col[0] for col in df.columns]
-
-    # 3. EMA 200 Calculation
-    df['EMA_200'] = df['Close'].ewm(span=200, adjust=False).mean()
-
-    # 4. RSI Calculation (Manual math to avoid library errors)
-    delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / loss
-    df['RSI'] = 100 - (100 / (1 + rs))
-
-    return df
-
-data = get_clean_data(symbol, timeframe)
-
-if data is not None:
-    # 5. Extract single numbers to ensure zero labeling errors
-    # We use .item() to pull the raw value out of the Pandas Series
-    current_price = float(data['Close'].iloc[-1])
-    current_ema = float(data['EMA_200'].iloc[-1])
-    current_rsi = float(data['RSI'].iloc[-1])
-
-    # UI Metrics
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Live Price", f"${current_price:,.2f}")
-    c2.metric("RSI (14)", f"{current_rsi:.1f}")
-    c3.metric("Trend", "BULLISH 📈" if current_price > current_ema else "BEARISH 📉")
-
-    st.divider()
-
-    # 🛡️ 99% ACCURACY LOGIC
-    if current_price > current_ema and current_rsi < 40:
-        st.success("💎 **KIMBUU BUY:** Uptrend + Pullback detected. 99% Entry Zone!")
-    elif current_price < current_ema and current_rsi > 65:
-        st.error("📉 **KIMBUU SELL:** Downtrend + Overbought. High Reversal Risk!")
+    # Display Stats
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Price", f"${data['Close'].iloc[-1]:,.2f}")
+    col2.metric("RSI (14)", round(data['RSI'].iloc[-1], 2))
+    
+    current_price = data['Close'].iloc[-1]
+    ema_200 = data['EMA_200'].iloc[-1]
+    
+    if current_price > ema_200:
+        col3.success("Trend: BULLISH 📈")
     else:
-        st.info("🔎 **SCANNING...** Searching for high-probability setups.")
-
-    # Visual Chart
+        col3.error("Trend: BEARISH 📉")
+        
     st.line_chart(data[['Close', 'EMA_200']])
-else:
-    st.error("⏳ Waiting for market data... try changing the timeframe.")
+
+st.divider()
+
+# 3. AI VISION SECTION
+st.header("📸 CADE VISION: AI Chart Scanner")
+st.write("Take a screenshot of any chart and upload it below for a deep AI analysis.")
+
+uploaded_file = st.file_uploader("Choose a chart image...", type=["jpg", "jpeg", "png"])
+
+if uploaded_file:
+    img = Image.open(uploaded_file)
+    st.image(img, caption="Scanning market structure...", use_container_width=True)
+    
+    with st.spinner("AI Oracle is analyzing patterns..."):
+        # The prompt tells the AI how to behave
+        prompt = "You are a Master Crypto Trader. Analyze this chart. Identify the trend, support/resistance levels, and give a clear BUY, SELL, or WAIT signal with a detailed reason."
+        response = model.generate_content([prompt, img])
+        
+        st.subheader("🤖 AI Verdict:")
+        st.write(response.text)
